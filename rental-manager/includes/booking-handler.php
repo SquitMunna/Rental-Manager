@@ -35,11 +35,6 @@ function rntmgr_calculate_totals($room_id, $checkin, $checkout, $coupon_code = '
 
     return compact('price_per_night', 'nights', 'subtotal', 'discount', 'tax', 'total');
 }
-if (!function_exists('rntmgr_submit_booking')) {
-    function rntmgr_submit_booking() {
-        // ...your complete logic from ajax.php...
-    }
-}
 
 function rntmgr_submit_booking() {
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'rntmgr_nonce')) {
@@ -78,27 +73,6 @@ function rntmgr_submit_booking() {
     if (is_wp_error($booking_id)) {
         wp_send_json_error(['message' => 'Could not create booking.']);
     }
-function rntmgr_process_booking_form() {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rntmgr_booking_submit'])) {
-
-        $booking_data = [
-            'post_type' => 'booking',
-            'post_title' => sanitize_text_field($_POST['name']),
-            'post_content' => 'Room: ' . $_POST['room'] . "\n\nDates: " . $_POST['checkin'] . ' → ' . $_POST['checkout'],
-            'post_status' => 'publish',
-        ];
-        $post_id = wp_insert_post($booking_data);
-
-        if ($post_id) {
-            update_post_meta($post_id, 'email', sanitize_email($_POST['email']));
-            update_post_meta($post_id, 'phone', sanitize_text_field($_POST['phone']));
-            update_post_meta($post_id, 'coupon', sanitize_text_field($_POST['coupon']));
-        }
-
-        echo '<p>Booking submitted! We will confirm shortly.</p>';
-    }
-}
-add_shortcode('rntmgr_booking_form', 'rntmgr_process_booking_form');
 
     update_post_meta($booking_id, 'room_id', $room_id);
     update_post_meta($booking_id, 'checkin_date', $checkin);
