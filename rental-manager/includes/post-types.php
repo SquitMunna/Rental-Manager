@@ -79,8 +79,9 @@ function rntmgr_register_post_types() {
         'supports' => ['title'],
         'map_meta_cap' => true,
     ]);
-
+    
     // Custom statuses for bookings
+    
     foreach (rntmgr_booking_statuses() as $status => $label) {
         register_post_status($status, [
             'label' => $label,
@@ -92,5 +93,7 @@ function rntmgr_register_post_types() {
             'label_count' => _n_noop("$label <span class='count'>(%s)</span>", "$label <span class='count'>(%s)</span>", 'rental-manager'),
         ]);
     }
+    
 }
 add_action('init', 'rntmgr_register_post_types');
+
