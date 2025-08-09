@@ -74,4 +74,9 @@ License
 Contact
 ----------------
 Created by Squit Munna — find me on GitHub for collaboration ideas!
+Website: maktomine.com
+ GitHub: github.com/SquitMunna
+ LinkedIn: linkedin.com/in/mkawsarmunna
+ YouTube: youtube.com/@maktomine
+ Facebook: facebook.com/mkawsarmunna
 
