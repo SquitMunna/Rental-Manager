@@ -1,0 +1,38 @@
+<form id="rntmgr-booking-form">
+  <input type="text" name="name" placeholder="Your Name" required>
+  <input type="email" name="email" placeholder="Email" required>
+  <input type="text" name="phone" placeholder="Phone" required>
+  <input type="text" name="room" placeholder="Room ID" required>
+  <input type="date" name="checkin" required>
+  <input type="date" name="checkout" required>
+  <input type="text" name="coupon" placeholder="Coupon Code">
+  <button type="submit">Book Now</button>
+</form>
+<div id="rntmgr-response"></div>
+<script>
+jQuery(document).ready(function($) {
+    $('#rntmgr-booking-form').on('submit', function(e) {
+        e.preventDefault();
+
+        const formData = $(this).serialize();
+        $('#rntmgr-response').html('Submitting...');
+
+        $.ajax({
+            type: 'POST',
+            url: '<?php echo admin_url("admin-ajax.php"); ?>',
+            data: formData + '&action=rntmgr_submit_booking',
+            success: function(response) {
+                if (response.success) {
+                    $('#rntmgr-response').html('<p>' + response.data + '</p>');
+                    $('#rntmgr-booking-form')[0].reset();
+                } else {
+                    $('#rntmgr-response').html('<p>' + response.data + '</p>');
+                }
+            },
+            error: function() {
+                $('#rntmgr-response').html('<p>Something went wrong.</p>');
+            }
+        });
+    });
+});
+</script>

@@ -1,0 +1,469 @@
+rental-manager/
+├─ rental-manager.php
+├─ includes/
+│  ├─ post-types.php
+│  ├─ meta-boxes.php
+│  ├─ enqueue.php
+│  ├─ shortcodes.php
+│  ├─ booking-handler.php
+│  ├─ admin.php
+│  ├─ email.php
+│  └─ helpers.php
+├─ templates/
+│  ├─ rooms-grid.php
+│  └─ single-room.php
+└─ assets/
+   ├─ css/
+   │  └─ front.css
+   └─ js/
+      └─ front.js
+<?php
+/**
+ * Plugin Name: Rental Manager (Rooms, Buildings, Bookings)
+ * Description: Locations → Buildings → Rooms with daily bookings (12pm-12pm). Frontend shortcodes and admin approvals.
+ * Version: 1.0.0
+ * Author: Md Kawsar Munna
+ * Author URI:https://maktomine.com
+ * License: GPL2+
+ */
+
+if (!defined('ABSPATH')) exit;
+
+class RM_Plugin {
+    const VERSION = '1.0.0';
+    const NONCE_ACTION = 'rm_booking_nonce';
+
+    public function __construct() {
+        error_log("Booking received at ".date('Y-m-d H:i:s'));
+
+
+
+        // Register types
+        add_action('init', [$this, 'register_post_types']);
+        add_action('init', [$this, 'register_status_tax'], 11);
+
+        // Meta boxes
+        add_action('add_meta_boxes', [$this, 'add_meta_boxes']);
+        add_action('save_post', [$this, 'save_meta']);
+
+        // Shortcodes
+        add_shortcode('rm_rooms', [$this, 'sc_rooms']);
+        add_shortcode('rm_room', [$this, 'sc_room']);
+
+        // AJAX booking handlers (logged-in + guests)
+        add_action('wp_ajax_rm_submit_booking', [$this, 'handle_booking']);
+        add_action('wp_ajax_nopriv_rm_submit_booking', [$this, 'handle_booking']);
+
+        // Admin columns for convenience
+        add_filter('manage_rm_room_posts_columns', [$this, 'room_columns']);
+        add_action('manage_rm_room_posts_custom_column', [$this, 'room_columns_content'], 10, 2);
+        add_filter('manage_rm_building_posts_columns', [$this, 'building_columns']);
+        add_action('manage_rm_building_posts_custom_column', [$this, 'building_columns_content'], 10, 2);
+
+        // Assets
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
+    }
+
+    public function enqueue_assets() {
+        // Minimal inline styles; you can replace with your theme styles
+        $css = "
+        .rm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+        .rm-card{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#fff}
+        .rm-card img{width:100%;height:160px;object-fit:cover;display:block}
+        .rm-card .rm-body{padding:12px}
+        .rm-price{font-weight:600;color:#0a7a34}
+        .rm-form input, .rm-form button{padding:8px;margin-top:6px;width:100%}
+        .rm-note{font-size:12px;color:#6b7280}
+        .rm-badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px}
+        ";
+        wp_add_inline_style('wp-block-library', $css);
+    }
+
+    public function register_post_types() {
+        // Locations
+        register_post_type('rm_location', [
+            'label' => 'Locations',
+            'public' => true,
+            'show_in_menu' => true,
+            'supports' => ['title', 'editor', 'thumbnail'],
+            'menu_icon' => 'dashicons-location-alt',
+        ]);
+
+        // Buildings
+        register_post_type('rm_building', [
+            'label' => 'Buildings',
+            'public' => true,
+            'show_in_menu' => true,
+            'supports' => ['title', 'editor', 'thumbnail'],
+            'menu_icon' => 'dashicons-admin-multisite',
+        ]);
+
+        // Rooms
+        register_post_type('rm_room', [
+            'label' => 'Rooms',
+            'public' => true,
+            'show_in_menu' => true,
+            'supports' => ['title', 'editor', 'thumbnail'],
+            'menu_icon' => 'dashicons-admin-home',
+        ]);
+
+        // Bookings (not public)
+        register_post_type('rm_booking', [
+            'label' => 'Bookings',
+            'public' => false,
+            'show_ui' => true,
+            'show_in_menu' => true,
+            'supports' => ['title'],
+            'menu_icon' => 'dashicons-clipboard',
+        ]);
+    }
+
+    // Optional taxonomy if you ever want to filter status; we also keep status in meta.
+    public function register_status_tax() {
+        register_taxonomy('rm_booking_status', 'rm_booking', [
+            'label' => 'Booking Status',
+            'public' => false,
+            'show_ui' => false,
+            'hierarchical' => false,
+        ]);
+    }
+
+    public function add_meta_boxes() {
+        add_meta_box('rm_building_meta', 'Building Details', [$this, 'mb_building'], 'rm_building', 'side', 'default');
+        add_meta_box('rm_room_meta', 'Room Details', [$this, 'mb_room'], 'rm_room', 'side', 'default');
+        add_meta_box('rm_booking_meta', 'Booking Details', [$this, 'mb_booking'], 'rm_booking', 'normal', 'high');
+    }
+
+    public function mb_building($post) {
+        wp_nonce_field('rm_save_meta', 'rm_meta_nonce');
+        $location_id = get_post_meta($post->ID, 'rm_location_id', true);
+        $locations = get_posts(['post_type' => 'rm_location', 'posts_per_page' => -1, 'post_status' => 'publish']);
+        echo '<p><label><strong>Location</strong></label><br/>';
+        echo '<select name="rm_location_id" style="width:100%"><option value="">— Select —</option>';
+        foreach ($locations as $loc) {
+            printf('<option value="%d"%s>%s</option>', $loc->ID, selected($location_id, $loc->ID, false), esc_html($loc->post_title));
+        }
+        echo '</select></p>';
+    }
+
+    public function mb_room($post) {
+        wp_nonce_field('rm_save_meta', 'rm_meta_nonce');
+        $building_id = get_post_meta($post->ID, 'rm_building_id', true);
+        $price = get_post_meta($post->ID, 'rm_price_per_night', true);
+        $capacity = get_post_meta($post->ID, 'rm_capacity', true);
+
+        $buildings = get_posts(['post_type' => 'rm_building', 'posts_per_page' => -1, 'post_status' => 'publish']);
+        echo '<p><label><strong>Building</strong></label><br/>';
+        echo '<select name="rm_building_id" style="width:100%"><option value="">— Select —</option>';
+        foreach ($buildings as $b) {
+            printf('<option value="%d"%s>%s</option>', $b->ID, selected($building_id, $b->ID, false), esc_html($b->post_title));
+        }
+        echo '</select></p>';
+
+        echo '<p><label><strong>Price per night</strong></label><br/>';
+        printf('<input type="number" step="0.01" name="rm_price_per_night" value="%s" style="width:100%%"/>', esc_attr($price));
+
+        echo '<p><label><strong>Capacity (people)</strong></label><br/>';
+        printf('<input type="number" name="rm_capacity" value="%s" style="width:100%%"/>', esc_attr($capacity));
+    }
+
+    public function mb_booking($post) {
+        wp_nonce_field('rm_save_meta', 'rm_meta_nonce');
+        $room_id = get_post_meta($post->ID, 'rm_room_id', true);
+        $checkin = get_post_meta($post->ID, 'rm_checkin', true);
+        $checkout = get_post_meta($post->ID, 'rm_checkout', true);
+        $nights = get_post_meta($post->ID, 'rm_nights', true);
+        $name = get_post_meta($post->ID, 'rm_customer_name', true);
+        $email = get_post_meta($post->ID, 'rm_customer_email', true);
+        $phone = get_post_meta($post->ID, 'rm_customer_phone', true);
+        $status = get_post_meta($post->ID, 'rm_status', true) ?: 'pending';
+
+        $rooms = get_posts(['post_type' => 'rm_room', 'posts_per_page' => -1, 'post_status' => 'publish']);
+
+        echo '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+        echo '<p><label><strong>Room</strong></label><br/><select name="rm_room_id" style="width:100%"><option value="">— Select —</option>';
+        foreach ($rooms as $r) {
+            printf('<option value="%d"%s>%s</option>', $r->ID, selected($room_id, $r->ID, false), esc_html($r->post_title));
+        }
+        echo '</select></p>';
+
+        printf('<p><label><strong>Check-in date (12 PM)</strong></label><br/><input type="date" name="rm_checkin" value="%s" /></p>', esc_attr($checkin));
+        printf('<p><label><strong>Check-out date (12 PM)</strong></label><br/><input type="date" name="rm_checkout" value="%s" /></p>', esc_attr($checkout));
+        printf('<p><label><strong>Nights</strong></label><br/><input type="number" name="rm_nights" value="%s" /></p>', esc_attr($nights));
+        echo '</div>';
+
+        echo '<hr/><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">';
+        printf('<p><label><strong>Customer name</strong></label><br/><input type="text" name="rm_customer_name" value="%s"/></p>', esc_attr($name));
+        printf('<p><label><strong>Customer email</strong></label><br/><input type="email" name="rm_customer_email" value="%s"/></p>', esc_attr($email));
+        printf('<p><label><strong>Customer phone</strong></label><br/><input type="text" name="rm_customer_phone" value="%s"/></p>', esc_attr($phone));
+        echo '</div>';
+
+        echo '<p><label><strong>Status</strong></label><br/>';
+        echo '<select name="rm_status">';
+        foreach (['pending'=>'Pending','approved'=>'Approved','rejected'=>'Rejected'] as $val => $label) {
+            printf('<option value="%s"%s>%s</option>', esc_attr($val), selected($status, $val, false), esc_html($label));
+        }
+        echo '</select> ';
+        printf('<span class="rm-badge">12 PM to 12 PM</span></p>');
+    }
+
+    public function save_meta($post_id) {
+        if (!isset($_POST['rm_meta_nonce']) || !wp_verify_nonce($_POST['rm_meta_nonce'], 'rm_save_meta')) return;
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (!current_user_can('edit_post', $post_id)) return;
+
+        $post_type = get_post_type($post_id);
+
+        if ($post_type === 'rm_building') {
+            update_post_meta($post_id, 'rm_location_id', intval($_POST['rm_location_id'] ?? 0));
+        } elseif ($post_type === 'rm_room') {
+            update_post_meta($post_id, 'rm_building_id', intval($_POST['rm_building_id'] ?? 0));
+            update_post_meta($post_id, 'rm_price_per_night', sanitize_text_field($_POST['rm_price_per_night'] ?? ''));
+            update_post_meta($post_id, 'rm_capacity', intval($_POST['rm_capacity'] ?? 0));
+        } elseif ($post_type === 'rm_booking') {
+            $room_id = intval($_POST['rm_room_id'] ?? 0);
+            $checkin = sanitize_text_field($_POST['rm_checkin'] ?? '');
+            $checkout = sanitize_text_field($_POST['rm_checkout'] ?? '');
+            $nights = intval($_POST['rm_nights'] ?? 0);
+            $status = sanitize_text_field($_POST['rm_status'] ?? 'pending');
+
+            // Basic validation
+            if ($room_id && $checkin && $checkout) {
+                // Prevent approval if overlapping
+                if ($status === 'approved' && $this->has_overlap($room_id, $checkin, $checkout, $post_id)) {
+                    // Revert to pending if conflict
+                    $status = 'pending';
+                    add_filter('redirect_post_location', function($loc) {
+                        return add_query_arg('rm_conflict', '1', $loc);
+                    });
+                }
+            }
+
+            update_post_meta($post_id, 'rm_room_id', $room_id);
+            update_post_meta($post_id, 'rm_checkin', $checkin);
+            update_post_meta($post_id, 'rm_checkout', $checkout);
+            update_post_meta($post_id, 'rm_nights', $nights);
+            update_post_meta($post_id, 'rm_customer_name', sanitize_text_field($_POST['rm_customer_name'] ?? ''));
+            update_post_meta($post_id, 'rm_customer_email', sanitize_email($_POST['rm_customer_email'] ?? ''));
+            update_post_meta($post_id, 'rm_customer_phone', sanitize_text_field($_POST['rm_customer_phone'] ?? ''));
+            update_post_meta($post_id, 'rm_status', $status);
+        }
+    }
+
+    // Frontend: list all rooms with a booking form
+    public function sc_rooms($atts) {
+        $rooms = get_posts(['post_type' => 'rm_room', 'posts_per_page' => -1, 'post_status' => 'publish']);
+        if (!$rooms) return '<p>No rooms found.</p>';
+
+        ob_start();
+        echo '<div class="rm-grid">';
+        foreach ($rooms as $room) {
+            $price = get_post_meta($room->ID, 'rm_price_per_night', true);
+            $building_id = get_post_meta($room->ID, 'rm_building_id', true);
+            $building = $building_id ? get_post($building_id) : null;
+            $location = $building ? get_post(get_post_meta($building->ID, 'rm_location_id', true)) : null;
+            $img = get_the_post_thumbnail_url($room->ID, 'medium') ?: 'https://via.placeholder.com/640x360?text=Room';
+
+            echo '<div class="rm-card">';
+            printf('<img src="%s" alt="%s"/>', esc_url($img), esc_attr($room->post_title));
+            echo '<div class="rm-body">';
+            printf('<h3>%s</h3>', esc_html($room->post_title));
+            if ($building) printf('<div><span class="rm-badge">%s</span></div>', esc_html($building->post_title));
+            if ($location) printf('<div class="rm-note">Location: %s</div>', esc_html($location->post_title));
+            printf('<div class="rm-price">৳ %s per night</div>', esc_html($price ?: '—'));
+            echo $this->booking_form_html($room->ID);
+            echo '</div></div>';
+        }
+        echo '</div>';
+        return ob_get_clean();
+    }
+
+    // Frontend: single room by id
+    public function sc_room($atts) {
+        $id = intval($atts['id'] ?? 0);
+        if (!$id) return '<p>Missing room ID.</p>';
+
+        $room = get_post($id);
+        if (!$room || $room->post_type !== 'rm_room') return '<p>Room not found.</p>';
+
+        $img = get_the_post_thumbnail_url($room->ID, 'large') ?: 'https://via.placeholder.com/1024x576?text=Room';
+        $price = get_post_meta($room->ID, 'rm_price_per_night', true);
+        $content = apply_filters('the_content', $room->post_content);
+
+        ob_start();
+        echo '<div class="rm-card">';
+        printf('<img src="%s" alt="%s"/>', esc_url($img), esc_attr($room->post_title));
+        echo '<div class="rm-body">';
+        printf('<h2>%s</h2>', esc_html($room->post_title));
+        printf('<div class="rm-price">৳ %s per night</div>', esc_html($price ?: '—'));
+        echo '<div style="margin:8px 0">'.$content.'</div>';
+        echo $this->booking_form_html($room->ID);
+        echo '</div></div>';
+        return ob_get_clean();
+    }
+
+    private function booking_form_html($room_id) {
+        $nonce = wp_create_nonce(self::NONCE_ACTION);
+        $action = admin_url('admin-ajax.php');
+        ob_start(); ?>
+        <form class="rm-form" method="post" action="<?php echo esc_url($action); ?>">
+            <input type="hidden" name="action" value="rm_submit_booking"/>
+            <input type="hidden" name="nonce" value="<?php echo esc_attr($nonce); ?>"/>
+            <input type="hidden" name="room_id" value="<?php echo esc_attr($room_id); ?>"/>
+
+            <label>Check-in date (12 PM)</label>
+            <input type="date" name="checkin" required />
+
+            <label>Check-out date (12 PM)</label>
+            <input type="date" name="checkout" required />
+
+            <label>Your name</label>
+            <input type="text" name="name" required />
+
+            <label>Email</label>
+            <input type="email" name="email" required />
+
+            <label>Phone</label>
+            <input type="text" name="phone" required />
+
+            <button type="submit">Request booking</button>
+            <div class="rm-note">Times are fixed: 12 PM to 12 PM. Nights auto-calculated.</div>
+        </form>
+        <script>
+        document.addEventListener('submit', function(e){
+            const f = e.target;
+            if(!f.classList.contains('rm-form')) return;
+            e.preventDefault();
+            const data = new FormData(f);
+            fetch(f.action, { method:'POST', body:data, credentials:'same-origin' })
+            .then(r=>r.json()).then(res=>{
+                if(res.success){
+                    f.reset();
+                    alert('Booking submitted! Status: ' + res.data.status + '. We will confirm soon.');
+                } else {
+                    alert('Error: ' + (res.data?.message || 'Please try again.'));
+                }
+            }).catch(()=>alert('Network error, please try again.'));
+        });
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    public function handle_booking() {
+        // Security
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], self::NONCE_ACTION)) {
+            wp_send_json_error(['message' => 'Invalid request.']);
+        }
+
+        $room_id = intval($_POST['room_id'] ?? 0);
+        $checkin = sanitize_text_field($_POST['checkin'] ?? '');
+        $checkout = sanitize_text_field($_POST['checkout'] ?? '');
+        $name = sanitize_text_field($_POST['name'] ?? '');
+        $email = sanitize_email($_POST['email'] ?? '');
+        $phone = sanitize_text_field($_POST['phone'] ?? '');
+
+        if (!$room_id || !$checkin || !$checkout || !$name || !$email) {
+            wp_send_json_error(['message' => 'Missing required fields.']);
+        }
+
+        $in_ts = strtotime($checkin);
+        $out_ts = strtotime($checkout);
+        if (!$in_ts || !$out_ts || $out_ts <= $in_ts) {
+            wp_send_json_error(['message' => 'Invalid dates.']);
+        }
+        $nights = (int) round(($out_ts - $in_ts) / DAY_IN_SECONDS);
+        if ($nights < 1) {
+            wp_send_json_error(['message' => 'Stay must be at least 1 night.']);
+        }
+
+        // Prevent double bookings (check approved only)
+        if ($this->has_overlap($room_id, $checkin, $checkout, 0)) {
+            wp_send_json_error(['message' => 'Dates are not available. Please choose different dates.']);
+        }
+
+        // Create booking post
+        $post_id = wp_insert_post([
+            'post_type' => 'rm_booking',
+            'post_status' => 'publish',
+            'post_title' => 'Booking: ' . $name . ' — Room #' . $room_id,
+        ]);
+
+        if (is_wp_error($post_id) || !$post_id) {
+            wp_send_json_error(['message' => 'Unable to save booking.']);
+        }
+
+        update_post_meta($post_id, 'rm_room_id', $room_id);
+        update_post_meta($post_id, 'rm_checkin', $checkin);
+        update_post_meta($post_id, 'rm_checkout', $checkout);
+        update_post_meta($post_id, 'rm_nights', $nights);
+        update_post_meta($post_id, 'rm_customer_name', $name);
+        update_post_meta($post_id, 'rm_customer_email', $email);
+        update_post_meta($post_id, 'rm_customer_phone', $phone);
+        update_post_meta($post_id, 'rm_status', 'pending');
+
+        // Optional: email admin (configure SMTP/plugin if needed)
+        // wp_mail(get_option('admin_email'), 'New Booking Request', "Room: $room_id\nDates: $checkin to $checkout\nName: $name\nPhone: $phone\nEmail: $email");
+
+        wp_send_json_success(['status' => 'pending', 'nights' => $nights]);
+    }
+
+    private function has_overlap($room_id, $new_in, $new_out, $exclude_booking_id = 0) {
+        $bookings = get_posts([
+            'post_type' => 'rm_booking',
+            'posts_per_page' => -1,
+            'post_status' => 'publish',
+            'meta_query' => [
+                ['key' => 'rm_room_id', 'value' => $room_id, 'compare' => '='],
+                ['key' => 'rm_status', 'value' => 'approved', 'compare' => '='],
+            ],
+        ]);
+        $n_in = strtotime($new_in);
+        $n_out = strtotime($new_out);
+
+        foreach ($bookings as $b) {
+            if ($exclude_booking_id && $b->ID == $exclude_booking_id) continue;
+            $in = strtotime(get_post_meta($b->ID, 'rm_checkin', true));
+            $out = strtotime(get_post_meta($b->ID, 'rm_checkout', true));
+            // Overlap if (new_in < existing_out) && (new_out > existing_in)
+            if ($n_in < $out && $n_out > $in) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Admin list columns
+    public function room_columns($cols) {
+        $cols['rm_id'] = 'ID';
+        $cols['rm_building'] = 'Building';
+        $cols['rm_price'] = 'Price/night';
+        return $cols;
+    }
+    public function room_columns_content($col, $post_id) {
+        if ($col === 'rm_id') echo intval($post_id);
+        if ($col === 'rm_building') {
+            $b_id = get_post_meta($post_id, 'rm_building_id', true);
+            echo $b_id ? esc_html(get_the_title($b_id)) : '—';
+        }
+        if ($col === 'rm_price') {
+            echo '৳ ' . esc_html(get_post_meta($post_id, 'rm_price_per_night', true) ?: '—');
+        }
+    }
+
+    public function building_columns($cols) {
+        $cols['rm_id'] = 'ID';
+        $cols['rm_location'] = 'Location';
+        return $cols;
+    }
+    public function building_columns_content($col, $post_id) {
+        if ($col === 'rm_id') echo intval($post_id);
+        if ($col === 'rm_location') {
+            $l_id = get_post_meta($post_id, 'rm_location_id', true);
+            echo $l_id ? esc_html(get_the_title($l_id)) : '—';
+        }
+    }
+    
+}
+
+new RM_Plugin();

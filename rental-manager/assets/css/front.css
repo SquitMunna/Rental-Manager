@@ -1,0 +1,14 @@
+.rntmgr-rooms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.rntmgr-room-card img { width: 100%; height: auto; display: block; border-radius: 8px; }
+.rntmgr-room-card h3 { margin: 8px 0; font-size: 18px; }
+.rntmgr-room-meta { display: flex; gap: 12px; color: #555; }
+
+.rntmgr-room { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+.rntmgr-gallery img { width: 100%; border-radius: 8px; }
+.rntmgr-amenities { list-style: none; padding: 0; display: flex; gap: 12px; flex-wrap: wrap; }
+.rntmgr-amenities li { background: #f3f5f7; padding: 6px 10px; border-radius: 16px; }
+
+.rntmgr-booking-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 520px; }
+.rntmgr-booking-form label { display: flex; flex-direction: column; font-size: 14px; }
+.rntmgr-booking-form button { grid-column: 1 / -1; padding: 10px 14px; background: #111827; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+.rntmgr-msg { grid-column: 1 / -1; margin-top: 6px; color: #1f2937; }
