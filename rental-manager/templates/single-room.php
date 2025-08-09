@@ -40,7 +40,6 @@ $gallery = get_post_meta($room_id, 'room_gallery_ids', true); $gallery = is_arra
         <h2>Book this room</h2>
         <?php echo do_shortcode('[rental_booking_form room_id="'. $room_id .'"]'); ?>
     </section>
-    
 
     <?php $related = rntmgr_get_related_rooms($room_id); if ($related): ?>
     <section class="rntmgr-related">
