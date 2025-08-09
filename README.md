@@ -1,6 +1,6 @@
-========================================
+=================================
 Rental Manager – WordPress Plugin
-========================================
+=================================
 
 A dynamic, user-friendly plugin to manage rentals — from locations and buildings to rooms and bookings — with flexible, duration-based pricing and conflict management. Designed to be intuitive, lightweight, and easily extendable.
 
