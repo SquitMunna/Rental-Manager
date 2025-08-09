@@ -48,8 +48,6 @@ function rntmgr_get_related_rooms($room_id, $limit = 3) {
 function rntmgr_booking_statuses() {
     return [
         'rental_pending'  => __('Pending', 'rental-manager'),
-        'rental_confirmed' => __('Confirmed', 'rental-manager'),
-        'rental_cancelled' => __('Cancelled', 'rental-manager'),    
         'rental_approved' => __('Approved', 'rental-manager'),
         'rental_rejected' => __('Rejected', 'rental-manager'),
     ];
