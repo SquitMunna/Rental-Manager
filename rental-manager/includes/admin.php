@@ -76,12 +76,3 @@ add_action('admin_post_rntmgr_reject', function(){
     }
     wp_redirect(admin_url('edit.php?post_type=booking')); exit;
 });
-add_filter('post_row_actions', function($actions, $post){
-    if ($post->post_type === 'booking') {
-        $approve_url = wp_nonce_url(admin_url('admin-post.php?action=rntmgr_approve&booking_id='.$post->ID), 'rntmgr_booking_action');
-        $reject_url  = wp_nonce_url(admin_url('admin-post.php?action=rntmgr_reject&booking_id='.$post->ID), 'rntmgr_booking_action');
-        $actions['approve'] = '<a href="'. esc_url($approve_url) .'">Approve</a>';
-        $actions['reject']  = '<a href="'. esc_url($reject_url) .'">Reject</a>';
-    }
-    return $actions;
-}, 10, 2);
